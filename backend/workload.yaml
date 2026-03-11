@@ -1,0 +1,24 @@
+apiVersion: openchoreo.dev/v1alpha1
+
+metadata:
+  name: nsw-oga
+
+endpoints:
+  - name: api
+    port: 8081
+    type: REST
+    basePath: /
+    visibility:
+      - external
+
+configurations:
+  env:
+    - name: OGA_PORT
+      value: "8081"
+    - name: OGA_DB_PATH
+      value: /data/oga_applications.db
+    - name: OGA_ALLOWED_ORIGINS
+      valueFrom:
+        secretKeyRef:
+          name: nsw-oga-secrets
+          key: allowed-origins
