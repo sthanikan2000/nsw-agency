@@ -1,24 +1,23 @@
+/**
+ * OGA-app–specific upload implementation. Points to this app's backend;
+ * when OGA moves to a separate repo, this file can target OGA-specific endpoints/S3 without touching shared UI.
+ */
 import type { ApiClient } from '../api'
-import { getEnv } from '../runtimeConfig'
 
-const API_BASE_URL = getEnv('VITE_API_BASE_URL', 'http://localhost:8081')!
+const API_BASE_URL = (import.meta.env.VITE_OGA_API_BASE_URL as string | undefined) ?? 'http://localhost:8080/api/v1'
 
-export interface FileMetadata {
-  id: string
-  name: string
+export interface UploadResponse {
   key: string
-  url: string
-  size: number
-  mimeType: string
+  name: string
 }
 
-export async function uploadFile(apiClient: ApiClient, file: File): Promise<FileMetadata> {
+export async function uploadFile(apiClient: ApiClient, file: File): Promise<UploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
   const response = await fetch(`${API_BASE_URL}/uploads`, {
     method: 'POST',
-    headers: await apiClient.getAuthHeaders(),
+    headers: await apiClient.getAuthHeaders(false),
     body: formData,
   })
 
@@ -28,10 +27,22 @@ export async function uploadFile(apiClient: ApiClient, file: File): Promise<File
     throw new Error(`Failed to upload file: ${response.status} ${response.statusText}`)
   }
 
-  const metadata = await response.json() as FileMetadata
-  return metadata
+  const meta = (await response.json()) as { key: string; name: string }
+  return { key: meta.key, name: meta.name }
 }
 
-export function getFileUrl(key: string): string {
-  return `${API_BASE_URL}/uploads/${key}`
+export async function getDownloadUrl(apiClient: ApiClient, key: string): Promise<{ url: string; expiresAt: number }> {
+  const response = await fetch(`${API_BASE_URL}/uploads/${key}`, {
+    headers: await apiClient.getAuthHeaders(false),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to get download URL: ${response.status} ${response.statusText}`)
+  }
+
+  const data = (await response.json()) as { download_url: string; expires_at: number }
+  const url = data.download_url.startsWith('/')
+    ? `${new URL(API_BASE_URL).origin}${data.download_url}`
+    : data.download_url
+  return { url, expiresAt: data.expires_at }
 }
