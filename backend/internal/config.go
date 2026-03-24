@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -16,41 +17,66 @@ type Config struct {
 	NSWAPIBaseURL  string
 }
 
-func LoadConfig() Config {
-	return Config{
-		Port: envOrDefault("OGA_PORT", "8081"),
-		DB: database.Config{
-			Driver:   envOrDefault("OGA_DB_DRIVER", "sqlite"),
-			Path:     envOrDefault("OGA_DB_PATH", "./oga_applications.db"),
+// LoadConfig loads configuration from environment variables
+func LoadConfig() (Config, error) {
+	driver := envOrDefault("OGA_DB_DRIVER", "sqlite")
+	var dbConfig database.Config
+
+	// Isolate required configurations per driver
+	switch driver {
+	case "postgres":
+		password := os.Getenv("OGA_DB_PASSWORD")
+		if password == "" {
+			return Config{}, fmt.Errorf("database password secret is missing: OGA_DB_PASSWORD is required for postgres driver")
+		}
+
+		dbConfig = database.Config{
+			Driver:   driver,
 			Host:     envOrDefault("OGA_DB_HOST", "localhost"),
 			Port:     envOrDefault("OGA_DB_PORT", "5432"),
 			User:     envOrDefault("OGA_DB_USER", "postgres"),
-			Password: envOrDefault("OGA_DB_PASSWORD", "changeme"),
+			Password: password, // Uses the strictly validated password
 			Name:     envOrDefault("OGA_DB_NAME", "oga_db"),
 			SSLMode:  envOrDefault("OGA_DB_SSLMODE", "disable"),
-		},
+		}
+
+	case "sqlite":
+		// SQLite only requires a file path
+		dbConfig = database.Config{
+			Driver: driver,
+			Path:   envOrDefault("OGA_DB_PATH", "./oga_applications.db"),
+		}
+
+	default:
+		return Config{}, fmt.Errorf("unsupported database driver configured: %s", driver)
+	}
+
+	cfg := Config{
+		Port:           envOrDefault("OGA_PORT", "8081"),
+		DB:             dbConfig,
 		FormsPath:      envOrDefault("OGA_FORMS_PATH", "./data/forms"),
 		DefaultFormID:  envOrDefault("OGA_DEFAULT_FORM_ID", "default"),
 		AllowedOrigins: parseOrigins(envOrDefault("OGA_ALLOWED_ORIGINS", "*")),
 		NSWAPIBaseURL:  envOrDefault("NSW_API_BASE_URL", "http://localhost:8080/api/v1"),
 	}
+
+	return cfg, nil
 }
 
-// parseOrigins splits a comma-separated list of origins.
-func parseOrigins(s string) []string {
-	var origins []string
-	for _, o := range strings.Split(s, ",") {
-		o = strings.TrimSpace(o)
-		if o != "" {
-			origins = append(origins, o)
-		}
+func envOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
 	}
-	return origins
+	return defaultValue
 }
 
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func parseOrigins(origins string) []string {
+	if origins == "" {
+		return []string{}
 	}
-	return fallback
+	parts := strings.Split(origins, ",")
+	for i, part := range parts {
+		parts[i] = strings.TrimSpace(part)
+	}
+	return parts
 }
