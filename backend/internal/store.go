@@ -101,14 +101,20 @@ func (s *ApplicationStore) GetByTaskID(taskID string) (*ApplicationRecord, error
 	return &app, nil
 }
 
-// List retrieves applications with optional status filter and pagination.
-func (s *ApplicationStore) List(ctx context.Context, status string, offset, limit int) ([]ApplicationRecord, int64, error) {
+// List retrieves applications with optional status, workflow, and search filters and pagination.
+func (s *ApplicationStore) List(ctx context.Context, status string, workflowID string, search string, offset, limit int) ([]ApplicationRecord, int64, error) {
 	var apps []ApplicationRecord
 	var total int64
 
 	query := s.db.WithContext(ctx).Model(&ApplicationRecord{})
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+	if workflowID != "" {
+		query = query.Where("workflow_id = ?", workflowID)
+	}
+	if search != "" {
+		query = query.Where("task_id LIKE ? OR workflow_id LIKE ?", "%"+search+"%", "%"+search+"%")
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -120,6 +126,55 @@ func (s *ApplicationStore) List(ctx context.Context, status string, offset, limi
 	}
 
 	return apps, total, nil
+}
+
+// WorkflowSummary represents a unique workflow with its most recent activity.
+type WorkflowSummary struct {
+	WorkflowID string    `json:"workflowId"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	Status     string    `json:"status"`    // Status of the most recent application
+	TaskCount  int       `json:"taskCount"` // Total number of applications in this workflow
+}
+
+// ListWorkflows returns a paginated list of unique workflow IDs with their latest status, update time, and task count, with optional search.
+func (s *ApplicationStore) ListWorkflows(ctx context.Context, search string, offset, limit int) ([]WorkflowSummary, int64, error) {
+	var summaries []WorkflowSummary
+	var total int64
+
+	countQuery := s.db.WithContext(ctx).Model(&ApplicationRecord{})
+	if search != "" {
+		countQuery = countQuery.Where("workflow_id LIKE ?", "%"+search+"%")
+	}
+
+	// Count unique workflows
+	if err := countQuery.Distinct("workflow_id").Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Subquery to get the latest updated_at and the count for each workflow_id
+	latestSubquery := s.db.Model(&ApplicationRecord{}).
+		Select("workflow_id, MAX(updated_at) as max_updated, COUNT(*) as task_count").
+		Group("workflow_id")
+
+	if search != "" {
+		latestSubquery = latestSubquery.Where("workflow_id LIKE ?", "%"+search+"%")
+	}
+
+	// Join with original table to get the status of the record with that max_updated
+	err := s.db.WithContext(ctx).Model(&ApplicationRecord{}).
+		Select("applications.workflow_id, applications.updated_at, applications.status, latest.task_count").
+		Joins("JOIN (?) as latest ON applications.workflow_id = latest.workflow_id AND applications.updated_at = latest.max_updated", latestSubquery).
+		Group("applications.workflow_id").
+		Order("applications.updated_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Scan(&summaries).Error
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return summaries, total, nil
 }
 
 func (s *ApplicationStore) UpdateStatus(taskID string, status string, reviewerResponse map[string]any) error {
