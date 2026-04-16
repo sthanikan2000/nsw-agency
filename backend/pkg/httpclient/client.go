@@ -2,11 +2,28 @@ package httpclient
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
 )
+
+// TLSConfig holds TLS-specific configuration.
+type TLSConfig struct {
+	InsecureSkipVerify bool // If true, TLS certificate verification is disabled (development only)
+}
+
+// Config holds generic HTTP client configuration.
+type Config struct {
+	Timeout time.Duration
+	TLS     *TLSConfig
+}
 
 // Client is a wrapper around *http.Client with built-in authentication and a base URL.
 type Client struct {
@@ -15,23 +32,120 @@ type Client struct {
 	BaseURL    string
 }
 
-// NewClient creates a new HTTP client with the given authenticator and base URL.
-func NewClient(baseURL string, timeout time.Duration, auth Authenticator) *Client {
+// NewHTTPClient creates an HTTP client from a Config.
+func NewHTTPClient(config Config) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	if config.TLS != nil {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: config.TLS.InsecureSkipVerify,
+		}
+		if config.TLS.InsecureSkipVerify {
+			slog.Warn("TLS certificate verification disabled - use only in development")
+		}
+	}
+
+	return &http.Client{
+		Timeout:   config.Timeout,
+		Transport: transport,
+	}
+}
+
+// ClientBuilder provides a fluent API for building HTTP clients.
+type ClientBuilder struct {
+	baseURL    string
+	config     Config
+	auth       Authenticator
+	transport  *http.Transport
+	httpClient *http.Client
+}
+
+// NewClientBuilder creates a new ClientBuilder with sensible defaults.
+func NewClientBuilder() *ClientBuilder {
+	return &ClientBuilder{
+		config: Config{
+			Timeout: 0,
+		},
+	}
+}
+
+// WithBaseURL sets the base URL.
+func (cb *ClientBuilder) WithBaseURL(baseURL string) *ClientBuilder {
+	cb.baseURL = baseURL
+	return cb
+}
+
+// WithTimeout sets the HTTP timeout.
+func (cb *ClientBuilder) WithTimeout(timeout time.Duration) *ClientBuilder {
+	cb.config.Timeout = timeout
+	return cb
+}
+
+// WithTLS sets the TLS configuration.
+func (cb *ClientBuilder) WithTLS(tlsConfig *TLSConfig) *ClientBuilder {
+	cb.config.TLS = tlsConfig
+	return cb
+}
+
+// WithAuthenticator sets the authenticator.
+func (cb *ClientBuilder) WithAuthenticator(auth Authenticator) *ClientBuilder {
+	cb.auth = auth
+	return cb
+}
+
+// WithTransport sets a shared transport for the HTTP client.
+// This allows multiple clients to reuse the same connection pool.
+func (cb *ClientBuilder) WithTransport(transport *http.Transport) *ClientBuilder {
+	cb.transport = transport
+	cb.httpClient = nil
+	return cb
+}
+
+// WithHTTPClient sets a pre-configured HTTP client.
+// When set, builder timeout and TLS settings are ignored in favor of the provided client.
+func (cb *ClientBuilder) WithHTTPClient(httpClient *http.Client) *ClientBuilder {
+	cb.httpClient = httpClient
+	cb.transport = nil
+	return cb
+}
+
+// Build creates the Client.
+func (cb *ClientBuilder) Build() *Client {
+	baseURL := cb.baseURL
 	if baseURL != "" && !strings.HasSuffix(baseURL, "/") {
 		baseURL += "/"
 	}
+
+	httpClient := cb.httpClient
+	if httpClient == nil {
+		if cb.transport != nil {
+			httpClient = &http.Client{
+				Timeout:   cb.config.Timeout,
+				Transport: cb.transport,
+			}
+		} else {
+			httpClient = NewHTTPClient(cb.config)
+		}
+	}
+
 	return &Client{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		auth:    auth,
-		BaseURL: baseURL,
+		httpClient: httpClient,
+		auth:       cb.auth,
+		BaseURL:    baseURL,
 	}
 }
 
 // Do performs an HTTP request and applies authentication.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	if req == nil {
+		return nil, errors.New("http request is nil")
+	}
 	if c.auth != nil && c.shouldAuthenticate(req) {
+		// Inject HTTP client into the context so OAuth2 token fetches
+		// use the same transport (e.g. InsecureSkipVerify TLS config).
+		ctx := context.WithValue(req.Context(), oauth2.HTTPClient, c.httpClient)
+		req = req.WithContext(ctx)
+
 		if err := c.auth.Authenticate(req); err != nil {
 			return nil, err
 		}

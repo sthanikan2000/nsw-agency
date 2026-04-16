@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,7 +39,10 @@ func TestOAuth2Authenticator(t *testing.T) {
 	defer apiServer.Close()
 
 	auth := NewOAuth2Authenticator(clientID, clientSecret, tokenServer.URL, nil)
-	client := NewClient("", 5*time.Second, auth)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		WithAuthenticator(auth).
+		Build()
 
 	resp, err := client.Get(apiServer.URL)
 	if err != nil {
@@ -59,10 +63,50 @@ func TestOAuth2AuthenticatorFailure(t *testing.T) {
 	defer tokenServer.Close()
 
 	auth := NewOAuth2Authenticator("id", "secret", tokenServer.URL, nil)
-	client := NewClient("", 5*time.Second, auth)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		WithAuthenticator(auth).
+		Build()
 
 	_, err := client.Get("http://example.com")
 	if err == nil {
 		t.Error("expected error on token fetch failure")
+	}
+}
+
+func TestOAuth2AuthenticatorWithInsecureTLS(t *testing.T) {
+	token := "tls-bearer-token"
+
+	// Self-signed cert token server — would fail without InsecureSkipVerify
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"access_token": "%s", "token_type": "Bearer", "expires_in": 3600}`, token)
+	}))
+	defer tokenServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer apiServer.Close()
+
+	auth := NewOAuth2Authenticator("id", "secret", tokenServer.URL+"/token", nil)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		WithTLS(&TLSConfig{InsecureSkipVerify: true}).
+		WithAuthenticator(auth).
+		Build()
+
+	resp, err := client.Get(apiServer.URL)
+	if err != nil {
+		t.Fatalf("token fetch failed TLS verification: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK, got %v", resp.Status)
 	}
 }

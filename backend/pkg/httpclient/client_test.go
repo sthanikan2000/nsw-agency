@@ -1,12 +1,15 @@
 package httpclient
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 func TestNoAuthenticator(t *testing.T) {
@@ -15,7 +18,9 @@ func TestNoAuthenticator(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", 5*time.Second, nil)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
 
 	resp, err := client.Get(server.URL)
 	if err != nil {
@@ -47,7 +52,9 @@ func TestPost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", 5*time.Second, nil)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
 	resp, err := client.Post(server.URL, expectedContentType, []byte(expectedBody))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -71,7 +78,10 @@ func (m *MockAuthenticator) Authenticate(req *http.Request) error {
 func TestDoAuthenticationFailure(t *testing.T) {
 	authErr := fmt.Errorf("auth failed")
 	auth := &MockAuthenticator{err: authErr}
-	client := NewClient("", 5*time.Second, auth)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		WithAuthenticator(auth).
+		Build()
 
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	resp, err := client.Do(req)
@@ -85,7 +95,9 @@ func TestDoAuthenticationFailure(t *testing.T) {
 }
 
 func TestGetInvalidURL(t *testing.T) {
-	client := NewClient("", 5*time.Second, nil)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
 	_, err := client.Get(":") // Invalid URL
 	if err == nil {
 		t.Error("expected error for invalid URL in Get")
@@ -109,7 +121,9 @@ func TestPostResolveURLError(t *testing.T) {
 }
 
 func TestPostInvalidURL(t *testing.T) {
-	client := NewClient("", 5*time.Second, nil)
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
 	_, err := client.Post("http://[::1]:80%2g/", "text/plain", nil) // Invalid URL
 	if err == nil {
 		t.Error("expected error for invalid URL in Post")
@@ -117,7 +131,10 @@ func TestPostInvalidURL(t *testing.T) {
 }
 
 func TestResolveURLPathError(t *testing.T) {
-	client := NewClient("http://example.com", 1*time.Second, nil)
+	client := NewClientBuilder().
+		WithBaseURL("http://example.com").
+		WithTimeout(1 * time.Second).
+		Build()
 	// Triggering url.Parse error on path is hard, but let's try something with control characters
 	_, _ = client.resolveURL("http://[::1]:80%2g/")
 	// Wait, if path has http:// prefix it returns early.
@@ -128,7 +145,7 @@ func TestResolveURLPathError(t *testing.T) {
 	}
 }
 
-func TestNewClientBaseURL(t *testing.T) {
+func TestClientBuilderBaseURL(t *testing.T) {
 	tests := []struct {
 		baseURL  string
 		expected string
@@ -139,7 +156,10 @@ func TestNewClientBaseURL(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		client := NewClient(tc.baseURL, 1*time.Second, nil)
+		client := NewClientBuilder().
+			WithBaseURL(tc.baseURL).
+			WithTimeout(1 * time.Second).
+			Build()
 		if client.BaseURL != tc.expected {
 			t.Errorf("expected BaseURL %q, got %q", tc.expected, client.BaseURL)
 		}
@@ -162,7 +182,10 @@ func TestResolveURL(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		client := NewClient(tc.baseURL, 1*time.Second, nil)
+		client := NewClientBuilder().
+			WithBaseURL(tc.baseURL).
+			WithTimeout(1 * time.Second).
+			Build()
 		got, err := client.resolveURL(tc.path)
 		if err != nil {
 			t.Errorf("unexpected error for baseURL %q and path %q: %v", tc.baseURL, tc.path, err)
@@ -197,7 +220,11 @@ func TestAuthLeakPrevention(t *testing.T) {
 	apiKey := "secret-key"
 	auth := NewAPIKeyAuthenticator(apiKey, "")
 	baseURL := "https://api.trusted.com"
-	client := NewClient(baseURL, 5*time.Second, auth)
+	client := NewClientBuilder().
+		WithBaseURL(baseURL).
+		WithTimeout(5 * time.Second).
+		WithAuthenticator(auth).
+		Build()
 
 	// Mock an external server
 	externalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,5 +249,97 @@ func TestShouldAuthenticateInvalidBaseURL(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "http://example.com", nil)
 	if client.shouldAuthenticate(req) {
 		t.Error("shouldAuthenticate should return false for invalid BaseURL")
+	}
+}
+
+func TestDoCustomMethod(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			t.Errorf("expected PATCH method, got %v", r.Method)
+		}
+		if got := r.Header.Get("X-Custom"); got != "1" {
+			t.Errorf("expected X-Custom header to be set, got %q", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
+
+	req, err := http.NewRequest(http.MethodPatch, server.URL, nil)
+	if err != nil {
+		t.Fatalf("unexpected error creating request: %v", err)
+	}
+	req.Header.Set("X-Custom", "1")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("expected status NoContent, got %v", resp.Status)
+	}
+}
+
+func TestDoNilRequest(t *testing.T) {
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		Build()
+
+	resp, err := client.Do(nil)
+	if err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if err.Error() != "http request is nil" {
+		t.Fatalf("expected nil request error, got %v", err)
+	}
+	if resp != nil {
+		t.Fatal("expected nil response for nil request")
+	}
+}
+
+// ContextCapturingAuthenticator captures the context from the request for inspection.
+type ContextCapturingAuthenticator struct {
+	capturedCtx context.Context
+}
+
+func (c *ContextCapturingAuthenticator) Authenticate(req *http.Request) error {
+	c.capturedCtx = req.Context()
+	return nil
+}
+
+func TestDoInjectsHTTPClientIntoContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	auth := &ContextCapturingAuthenticator{}
+	client := NewClientBuilder().
+		WithTimeout(5 * time.Second).
+		WithBaseURL(server.URL).
+		WithAuthenticator(auth).
+		Build()
+
+	req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Verify the oauth2.HTTPClient was injected into the context the authenticator received
+	injected, ok := auth.capturedCtx.Value(oauth2.HTTPClient).(*http.Client)
+	if !ok || injected == nil {
+		t.Fatal("expected oauth2.HTTPClient to be injected into request context")
+	}
+
+	// Verify it is exactly the client's own httpClient (same pointer)
+	if injected != client.httpClient {
+		t.Error("injected HTTP client does not match the client's internal httpClient")
 	}
 }
