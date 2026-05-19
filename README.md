@@ -54,10 +54,12 @@ Every process runs in its own process group (`set -m`), so `Ctrl-C` cleanly stop
 
 | OGA | Backend port | DB file | NSW M2M client | Frontend port | Branding config | IdP client id |
 |-----|--------------|---------|----------------|---------------|-----------------|---------------|
-| NPQS | 8081 | `backend/npqs_applications.db` | `NPQS_TO_NSW` | 5174 | [npqs.branding.json](frontend/public/configs/npqs.branding.json) | `OGA_PORTAL_APP_NPQS` |
-| FCAU | 8082 | `backend/fcau_applications.db` | `FCAU_TO_NSW` | 5175 | [fcau.branding.json](frontend/public/configs/fcau.branding.json) | `OGA_PORTAL_APP_FCAU` |
-| IRD  | 8083 | `backend/ird_applications.db`  | `IRD_TO_NSW`  | 5176 | [ird.branding.json](frontend/public/configs/ird.branding.json) | `OGA_PORTAL_APP_IRD` |
-| CDA  | 8084 | `backend/cda_applications.db`  | `CDA_TO_NSW`  | 5177 | [cda.branding.json](frontend/public/configs/cda.branding.json) | `OGA_PORTAL_APP_CDA` |
+| NPQS | 8081 | `backend/npqs_applications.db` | `NPQS_TO_NSW` | 5174 | `frontend/public/configs/npqs.branding.json` | `OGA_PORTAL_APP_NPQS` |
+| FCAU | 8082 | `backend/fcau_applications.db` | `FCAU_TO_NSW` | 5175 | `frontend/public/configs/fcau.branding.json` | `OGA_PORTAL_APP_FCAU` |
+| IRD  | 8083 | `backend/ird_applications.db`  | `IRD_TO_NSW`  | 5176 | `frontend/public/configs/ird.branding.json`  | `OGA_PORTAL_APP_IRD` |
+| CDA  | 8084 | `backend/cda_applications.db`  | `CDA_TO_NSW`  | 5177 | `frontend/public/configs/cda.branding.json`  | `OGA_PORTAL_APP_CDA` |
+
+The branding-config paths above are gitignored — copy them from [default.branding.json](frontend/public/configs/default.branding.json) (see below).
 
 The script sets `OGA_PORT`, `OGA_DB_PATH`, `OGA_NSW_CLIENT_ID` for the backend and `VITE_PORT`, `VITE_BRANDING_NAME`, `VITE_API_BASE_URL`, `VITE_IDP_CLIENT_ID`, `VITE_APP_URL` for the frontend. Any of these can be overridden by exporting them before invoking the script (other backend/frontend env vars — OAuth secrets, IdP base URL, etc. — still come from `backend/.env` and `frontend/.env`).
 
