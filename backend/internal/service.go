@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
+	"github.com/OpenNSW/nsw-agency/backend/internal/form"
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
 	"gorm.io/gorm"
 )
@@ -94,12 +95,15 @@ type TaskResponse struct {
 type ogaService struct {
 	store       *ApplicationStore
 	configStore *TaskConfigStore
-	formStore   *FormStore
+	formStore   *form.FormStore
 	httpClient  *httpclient.Client
 }
 
 // NewOGAService creates a new OGA service instance with database storage
-func NewOGAService(store *ApplicationStore, configStore *TaskConfigStore, formStore *FormStore, httpClient *httpclient.Client) OGAService {
+func NewOGAService(store *ApplicationStore, configStore *TaskConfigStore, formStore *form.FormStore, httpClient *httpclient.Client) OGAService {
+	if store == nil || configStore == nil || formStore == nil || httpClient == nil {
+		panic("NewOGAService: all dependencies must be non-nil")
+	}
 	return &ogaService{
 		store:       store,
 		configStore: configStore,
