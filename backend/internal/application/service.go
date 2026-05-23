@@ -19,7 +19,7 @@ import (
 // ErrApplicationNotFound is returned when an application is not found
 var ErrApplicationNotFound = errors.New("application not found")
 
-// Service handles OGA portal operations
+// Service handles Agency portal operations
 type Service interface {
 	// CreateApplication creates a new application from injected data
 	CreateApplication(ctx context.Context, req *InjectRequest) error
@@ -46,22 +46,22 @@ type Service interface {
 
 // InjectRequest represents the incoming data from services
 type InjectRequest struct {
-	TaskID             string           `json:"taskId"`
-	TaskCode           string           `json:"taskCode"`
-	ConsignmentID      string           `json:"consignmentId"`
-	Data               map[string]any   `json:"data"`
-	ServiceURL         string           `json:"serviceUrl"` // URL to send response back to
-	OGAFeedbackHistory []map[string]any `json:"ogaFeedbackHistory,omitempty"`
+	TaskID                string           `json:"taskId"`
+	TaskCode              string           `json:"taskCode"`
+	ConsignmentID         string           `json:"consignmentId"`
+	Data                  map[string]any   `json:"data"`
+	ServiceURL            string           `json:"serviceUrl"` // URL to send response back to
+	AgencyFeedbackHistory []map[string]any `json:"agencyFeedbackHistory,omitempty"`
 }
 
 // Application represents an application for display in the UI
 type Application struct {
-	TaskID        string         `json:"taskId"`
-	TaskCode      string         `json:"taskCode"`
-	ConsignmentID string         `json:"consignmentId"`
-	ServiceURL    string         `json:"serviceUrl"`
-	Data          map[string]any `json:"data"`                    // Data from NSW service to be rendered in the UI
-	OgaActionData map[string]any `json:"ogaActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
+	TaskID           string         `json:"taskId"`
+	TaskCode         string         `json:"taskCode"`
+	ConsignmentID    string         `json:"consignmentId"`
+	ServiceURL       string         `json:"serviceUrl"`
+	Data             map[string]any `json:"data"`                       // Data from NSW service to be rendered in the UI
+	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
 
 	// Task metadata from config
 	Title       string `json:"title,omitempty"`
@@ -69,8 +69,8 @@ type Application struct {
 	Icon        string `json:"icon,omitempty"`
 	Category    string `json:"category,omitempty"`
 
-	DataForm        json.RawMessage  `json:"dataForm,omitempty"` // Schema for rendering the data in Read Only mode in the UI
-	OgaForm         json.RawMessage  `json:"ogaForm,omitempty"`  // Schema for rendering the OGA Action form in the UI
+	DataForm        json.RawMessage  `json:"dataForm,omitempty"`   // Schema for rendering the data in Read Only mode in the UI
+	AgencyForm      json.RawMessage  `json:"agencyForm,omitempty"` // Schema for rendering the Agency Action form in the UI
 	Status          string           `json:"status"`
 	FeedbackHistory []feedback.Entry `json:"feedbackHistory,omitempty"`
 	ReviewedAt      *time.Time       `json:"reviewedAt,omitempty"`
@@ -100,7 +100,7 @@ type service struct {
 	httpClient  *httpclient.Client
 }
 
-// NewService creates a new OGA service instance with database storage
+// NewService creates a new Agency service instance with database storage
 func NewService(store *ApplicationStore, configStore *taskconfig.TaskConfigStore, formStore *form.FormStore, httpClient *httpclient.Client) Service {
 	if store == nil || configStore == nil || formStore == nil || httpClient == nil {
 		panic("NewService: all dependencies must be non-nil")
@@ -223,17 +223,17 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 	}
 
 	app := &Application{
-		TaskID:          record.TaskID,
-		TaskCode:        record.TaskCode,
-		ConsignmentID:   record.ConsignmentID,
-		ServiceURL:      record.ServiceURL,
-		Data:            record.Data,
-		OgaActionData:   record.ReviewerResponse,
-		Status:          record.Status,
-		FeedbackHistory: record.OGAFeedbackHistory,
-		ReviewedAt:      record.ReviewedAt,
-		CreatedAt:       record.CreatedAt,
-		UpdatedAt:       record.UpdatedAt,
+		TaskID:           record.TaskID,
+		TaskCode:         record.TaskCode,
+		ConsignmentID:    record.ConsignmentID,
+		ServiceURL:       record.ServiceURL,
+		Data:             record.Data,
+		AgencyActionData: record.ReviewerResponse,
+		Status:           record.Status,
+		FeedbackHistory:  record.AgencyFeedbackHistory,
+		ReviewedAt:       record.ReviewedAt,
+		CreatedAt:        record.CreatedAt,
+		UpdatedAt:        record.UpdatedAt,
 	}
 
 	// Attach task configuration
@@ -255,7 +255,7 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		}
 		if config.Forms.Review != "" {
 			if form, ok := s.formStore.GetForm(config.Forms.Review); ok {
-				app.OgaForm = form
+				app.AgencyForm = form
 			} else {
 				slog.WarnContext(ctx, "review form not found", "taskCode", record.TaskCode, "formID", config.Forms.Review)
 			}
@@ -276,7 +276,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 		TaskID:        app.TaskID,
 		ConsignmentID: app.ConsignmentID,
 		Payload: map[string]any{
-			"action":  "OGA_VERIFICATION",
+			"action":  "AGENCY_VERIFICATION",
 			"content": reviewerResponse,
 		},
 	}
@@ -301,7 +301,7 @@ func (s *service) ReviewApplication(ctx context.Context, taskID string, reviewer
 	return s.store.UpdateStatus(taskID, status, reviewerResponse)
 }
 
-// FeedbackApplication sends OGA feedback to the trader
+// FeedbackApplication sends Agency feedback to the trader
 func (s *service) FeedbackApplication(ctx context.Context, taskID string, content map[string]any) error {
 	app, err := s.GetApplication(ctx, taskID)
 	if err != nil {
@@ -318,7 +318,7 @@ func (s *service) FeedbackApplication(ctx context.Context, taskID string, conten
 		TaskID:        app.TaskID,
 		ConsignmentID: app.ConsignmentID,
 		Payload: map[string]any{
-			"action":  "OGA_VERIFICATION_FEEDBACK",
+			"action":  "AGENCY_VERIFICATION_FEEDBACK",
 			"content": content,
 		},
 	}

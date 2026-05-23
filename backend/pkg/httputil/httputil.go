@@ -1,4 +1,4 @@
-// Package httputil provides common HTTP utilities for OGA services.
+// Package httputil provides common HTTP utilities for Agency services.
 package httputil
 
 import (

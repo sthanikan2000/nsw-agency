@@ -1,4 +1,4 @@
-// API service for OGA Portal
+// API service for Agency Portal
 import type { JsonSchema, UISchemaElement } from '@jsonforms/core'
 import { API_BASE_URL } from './constants'
 
@@ -111,12 +111,12 @@ export interface FormDefinition {
   uiSchema: UISchemaElement
 }
 
-export interface OGAApplication {
+export interface AgencyApplication {
   taskId: string
   consignmentId: string
   serviceUrl: string
   data: Record<string, unknown>
-  ogaActionData?: Record<string, unknown>
+  agencyActionData?: Record<string, unknown>
 
   // Task metadata from config
   title?: string
@@ -126,7 +126,7 @@ export interface OGAApplication {
 
   // Form definitions
   dataForm?: FormDefinition
-  ogaForm?: FormDefinition
+  agencyForm?: FormDefinition
 
   status: string
   feedbackHistory?: FeedbackEntry[]
@@ -156,7 +156,7 @@ export async function fetchConsignments(
   signal?: AbortSignal,
 ): Promise<PaginatedResponse<ConsignmentSummary>> {
   return apiClient.get<PaginatedResponse<ConsignmentSummary>>(
-    '/api/oga/consignments',
+    '/api/v1/consignments',
     {
       q: params?.q,
       page: params?.page,
@@ -170,9 +170,9 @@ export async function fetchApplications(
   apiClient: ApiClient,
   params?: { status?: string; consignmentId?: string; q?: string; page?: number; pageSize?: number },
   signal?: AbortSignal,
-): Promise<PaginatedResponse<OGAApplication>> {
-  return apiClient.get<PaginatedResponse<OGAApplication>>(
-    '/api/oga/applications',
+): Promise<PaginatedResponse<AgencyApplication>> {
+  return apiClient.get<PaginatedResponse<AgencyApplication>>(
+    '/api/v1/applications',
     {
       status: params?.status,
       consignmentId: params?.consignmentId,
@@ -184,16 +184,16 @@ export async function fetchApplications(
   )
 }
 
-// Fetch application detail by taskId from OGA Service
+// Fetch application detail by taskId from Agency Service
 export async function fetchApplicationDetail(
   apiClient: ApiClient,
   taskId: string,
   signal?: AbortSignal,
-): Promise<OGAApplication> {
-  return apiClient.get<OGAApplication>(`/api/oga/applications/${taskId}`, {}, signal)
+): Promise<AgencyApplication> {
+  return apiClient.get<AgencyApplication>(`/api/v1/applications/${taskId}`, {}, signal)
 }
 
-// Submit review for a task via OGA Service
+// Submit review for a task via Agency Service
 export async function submitReview(
   apiClient: ApiClient,
   taskId: string,
@@ -201,13 +201,13 @@ export async function submitReview(
   signal?: AbortSignal,
 ): Promise<ReviewResponse> {
   return apiClient.post<Record<string, unknown>, ReviewResponse>(
-    `/api/oga/applications/${taskId}/review`,
+    `/api/v1/applications/${taskId}/review`,
     formValues,
     signal,
   )
 }
 
-// Submit feedback (request changes) for a task via OGA Service
+// Submit feedback (request changes) for a task via Agency Service
 export async function submitFeedback(
   apiClient: ApiClient,
   taskId: string,
@@ -215,7 +215,7 @@ export async function submitFeedback(
   signal?: AbortSignal,
 ): Promise<ReviewResponse> {
   return apiClient.post<Record<string, unknown>, ReviewResponse>(
-    `/api/oga/applications/${taskId}/feedback`,
+    `/api/v1/applications/${taskId}/feedback`,
     content,
     signal,
   )
