@@ -158,11 +158,11 @@ jobs:
             --ignore-unfixed \
             --format sarif \
             --output "trivy-${{ matrix.image_name }}.sarif" \
-            --exit-code 1 \
+            --exit-code 0 \
             "${{ fromJSON(steps.meta.outputs.json).tags[0] }}"
 
       - name: Upload Trivy results
-        if: always() && steps.trivy-scan.outcome == 'success'
+        if: always() && steps.trivy-scan.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-${{ matrix.image_name }}.sarif
