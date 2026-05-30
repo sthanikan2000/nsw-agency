@@ -27,6 +27,15 @@ func NewFromConfig(ctx context.Context, cfg Config) (Source, error) {
 	return upstream.NewFromConfig(ctx, cfg)
 }
 
+// ConfigTypeLabel returns a display label for a *Config, suitable for logging.
+// A nil config (disabled source) returns "none".
+func ConfigTypeLabel(cfg *Config) string {
+	if cfg == nil {
+		return "none"
+	}
+	return cfg.Type
+}
+
 // GetLayered fetches id by trying each source in order. nil sources are
 // skipped, so callers can pass a nil layer to mean "disabled". The first
 // source that returns ok=true wins, and its label (the corresponding entry in

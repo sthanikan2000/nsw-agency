@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sync"
 
 	"github.com/OpenNSW/nsw-agency/backend/pkg/blobsource"
 )
@@ -52,13 +51,12 @@ const TaskConfigsSubdir = "task-configs"
 
 // TaskConfigStore resolves task configurations by task code on demand.
 // Configs are layered: primary source wins, built-in defaults are used on miss.
-// Unmarshaled configs are cached in memory after first fetch so subsequent
-// lookups for the same taskCode are free regardless of source type.
+// Raw bytes are cached by the underlying blobsource; no additional cache is
+// kept here so that background manifest refreshes propagate immediately.
 type TaskConfigStore struct {
 	primary         blobsource.Source
 	builtin         blobsource.Source
 	defaultConfigID string
-	cache           sync.Map // string → *TaskConfig
 }
 
 // NewTaskConfigStore builds a TaskConfigStore backed by the given sources.
@@ -79,7 +77,6 @@ func NewTaskConfigStore(_ context.Context, primary, builtin blobsource.Source, d
 
 // GetConfig fetches the configuration for the given task code, falling back to
 // the configured default if one is set, or returning an error otherwise.
-// Results are cached after the first successful fetch.
 func (ts *TaskConfigStore) GetConfig(ctx context.Context, taskCode string) (*TaskConfig, error) {
 	if cfg, err := ts.resolve(ctx, taskCode); err == nil {
 		slog.Info("task config resolved", "taskCode", taskCode, "config", cfg)
@@ -95,12 +92,8 @@ func (ts *TaskConfigStore) GetConfig(ctx context.Context, taskCode string) (*Tas
 	return nil, fmt.Errorf("task config %q not found", taskCode)
 }
 
-// resolve fetches and caches a config by its exact ID (no default fallback).
+// resolve fetches a config by its exact ID (no default fallback).
 func (ts *TaskConfigStore) resolve(ctx context.Context, id string) (*TaskConfig, error) {
-	if v, ok := ts.cache.Load(id); ok {
-		return v.(*TaskConfig), nil
-	}
-
 	sources := []blobsource.Source{ts.primary, ts.builtin}
 	labels := []string{"primary", "builtin"}
 	data, layer, err := blobsource.GetLayered(ctx, id, sources, labels)
@@ -119,10 +112,7 @@ func (ts *TaskConfigStore) resolve(ctx context.Context, id string) (*TaskConfig,
 		cfg.TaskCode = id
 	}
 	slog.Info("loaded task config", "id", id, "layer", layer)
-
-	// Store the first writer's value in case of a concurrent resolve for the same id.
-	v, _ := ts.cache.LoadOrStore(id, &cfg)
-	return v.(*TaskConfig), nil
+	return &cfg, nil
 }
 
 // Close releases the underlying blob sources (stops GitHub background refresh

@@ -182,23 +182,21 @@ func TestTaskConfigStore_BuiltinFallback(t *testing.T) {
 	}
 }
 
-func TestTaskConfigStore_CachesAfterFirstFetch(t *testing.T) {
+func TestTaskConfigStore_MultipleRetrievalsSucceed(t *testing.T) {
 	dir := t.TempDir()
 	writeTaskConfigFile(t, dir, "alpha.json", `{"meta":{"title":"Alpha"}}`)
 
 	store := newStore(t, nil, newLocalSource(t, dir), "")
 	ctx := context.Background()
 
-	c1, err := store.GetConfig(ctx, "alpha")
-	if err != nil {
-		t.Fatalf("first GetConfig: %v", err)
-	}
-	c2, err := store.GetConfig(ctx, "alpha")
-	if err != nil {
-		t.Fatalf("second GetConfig: %v", err)
-	}
-	if c1 != c2 {
-		t.Errorf("expected same pointer from cache, got different instances")
+	for i := range 3 {
+		cfg, err := store.GetConfig(ctx, "alpha")
+		if err != nil {
+			t.Fatalf("GetConfig call %d: %v", i+1, err)
+		}
+		if cfg.Meta.Title != "Alpha" {
+			t.Errorf("call %d: expected Alpha, got %q", i+1, cfg.Meta.Title)
+		}
 	}
 }
 

@@ -34,8 +34,8 @@ func main() {
 		"db_path", cfg.DB.Path,
 		"port", cfg.Port,
 		"config_dir", cfg.ConfigDir,
-		"forms_source_type", sourceTypeLabel(cfg.FormsSource),
-		"task_configs_source_type", sourceTypeLabel(cfg.TaskConfigsSource),
+		"forms_source_type", blobsource.ConfigTypeLabel(cfg.FormsSource),
+		"task_configs_source_type", blobsource.ConfigTypeLabel(cfg.TaskConfigsSource),
 	)
 
 	// Initialize database store
@@ -229,12 +229,4 @@ func taskConfigsPrimarySource(ctx context.Context, cfg *blobsource.Config) blobs
 		return nil
 	}
 	return src
-}
-
-// sourceTypeLabel renders a primary source config for startup logging.
-func sourceTypeLabel(cfg *blobsource.Config) string {
-	if cfg == nil {
-		return "none"
-	}
-	return cfg.Type
 }
