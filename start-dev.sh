@@ -346,7 +346,7 @@ start_frontend() {
     VITE_API_BASE_URL="${VITE_API_BASE_URL:-http://localhost:$BE_PORT}" \
     VITE_IDP_BASE_URL="${VITE_IDP_BASE_URL:-$IDP_BASE_URL}" \
     VITE_IDP_CLIENT_ID="${VITE_IDP_CLIENT_ID:-$IDP_CLIENT_ID}" \
-    VITE_IDP_SCOPES="${VITE_IDP_SCOPES:-openid,profile,email,ou}" \
+    VITE_IDP_SCOPES="${VITE_IDP_SCOPES:-openid,profile,email,ou,role,agency:application:read,agency:application:review,agency:application:feedback,agency:consignment:read,agency:storage:read,agency:storage:write}" \
     VITE_IDP_EXPECTED_OU_HANDLE="${VITE_IDP_EXPECTED_OU_HANDLE:-$OU_HANDLE}" \
     VITE_APP_URL="${VITE_APP_URL:-http://localhost:$FE_PORT}" \
     exec pnpm run dev
