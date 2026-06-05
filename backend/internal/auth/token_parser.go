@@ -170,7 +170,7 @@ func (te *TokenExtractor) ExtractPrincipalFromHeader(authHeader string) (*Princi
 	parsedToken, err := jwt.ParseWithClaims(tokenString, claims, te.keyFunc,
 		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512"}),
 		jwt.WithIssuer(te.expIssuer),
-		// jwt.WithAudience(te.audience), // TODO: Once Thunder(IdP) supports defining audience claim, add this validation back.
+		jwt.WithAudience(te.expAudience),
 		jwt.WithLeeway(30*time.Second),
 	)
 	if err != nil {
