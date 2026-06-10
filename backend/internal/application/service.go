@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/OpenNSW/nsw-agency/backend/internal/auth"
 	"github.com/OpenNSW/nsw-agency/backend/internal/feedback"
+	"github.com/OpenNSW/nsw-agency/backend/internal/rbac"
 	"github.com/OpenNSW/nsw-agency/backend/internal/taskconfig"
 	"github.com/OpenNSW/nsw-agency/backend/internal/template"
 	"github.com/OpenNSW/nsw-agency/backend/pkg/httpclient"
@@ -62,6 +64,7 @@ type Application struct {
 	ServiceURL       string         `json:"serviceUrl"`
 	Data             map[string]any `json:"data"`                       // Data from NSW service to be rendered in the UI
 	AgencyActionData map[string]any `json:"agencyActionData,omitempty"` // Copy of the payload sent back to the NSW after review, for display in the UI
+	AllowedActions   []string       `json:"allowedActions,omitempty"`
 
 	// Task metadata from config
 	Title       string `json:"title,omitempty"`
@@ -97,17 +100,19 @@ type service struct {
 	store            *ApplicationStore
 	templateProvider template.Provider
 	httpClient       *httpclient.Client
+	roleService      *rbac.RoleService
 }
 
 // NewService creates a new Agency service instance with database storage
-func NewService(store *ApplicationStore, templateProvider template.Provider, httpClient *httpclient.Client) Service {
-	if store == nil || templateProvider == nil || httpClient == nil {
+func NewService(store *ApplicationStore, templateProvider template.Provider, httpClient *httpclient.Client, roleService *rbac.RoleService) Service {
+	if store == nil || templateProvider == nil || httpClient == nil || roleService == nil {
 		panic("NewService: all dependencies must be non-nil")
 	}
 	return &service{
 		store:            store,
 		templateProvider: templateProvider,
 		httpClient:       httpClient,
+		roleService:      roleService,
 	}
 }
 
@@ -155,8 +160,19 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 		return nil, err
 	}
 
-	applications := make([]Application, len(records))
-	for i, record := range records {
+	authCtx := auth.GetAuthContext(ctx)
+	var roles []rbac.RoleRecord
+	if authCtx != nil && authCtx.User != nil {
+		var err error
+		roles, err = s.roleService.GetRolesForUser(authCtx.User.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get roles for user: %w", err)
+		}
+	}
+
+	applications := make([]Application, 0, len(records))
+	for _, record := range records {
+		var permissions []taskconfig.Permission
 		app := Application{
 			TaskID:        record.TaskID,
 			TaskCode:      record.TaskCode,
@@ -169,14 +185,19 @@ func (s *service) GetApplications(ctx context.Context, status string, consignmen
 			UpdatedAt:     record.UpdatedAt,
 		}
 
-		// Attach basic metadata for the list view
 		if config, err := s.templateProvider.GetTaskConfig(record.TaskCode); err == nil {
 			app.Title = config.Meta.Title
 			app.Category = config.Meta.Category
 			app.Icon = config.Meta.Icon
+			permissions = config.Permissions
 		}
 
-		applications[i] = app
+		accessible, _ := resolveAccess(roles, permissions)
+		if !accessible {
+			continue
+		}
+
+		applications = append(applications, app)
 	}
 
 	return &PagedResponse[Application]{
@@ -220,6 +241,16 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 		return nil, fmt.Errorf("failed to get application: %w", err)
 	}
 
+	authCtx := auth.GetAuthContext(ctx)
+	var roles []rbac.RoleRecord
+	if authCtx != nil && authCtx.User != nil {
+		var err error
+		roles, err = s.roleService.GetRolesForUser(authCtx.User.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get roles for user: %w", err)
+		}
+	}
+
 	app := &Application{
 		TaskID:           record.TaskID,
 		TaskCode:         record.TaskCode,
@@ -238,11 +269,14 @@ func (s *service) GetApplication(ctx context.Context, taskID string) (*Applicati
 	config, err := s.templateProvider.GetTaskConfig(record.TaskCode)
 	if err != nil {
 		slog.WarnContext(ctx, "task config not found for application", "taskID", taskID, "taskCode", record.TaskCode)
+		_, app.AllowedActions = resolveAccess(roles, nil)
 	} else {
 		app.Title = config.Meta.Title
 		app.Description = config.Meta.Description
 		app.Icon = config.Meta.Icon
 		app.Category = config.Meta.Category
+
+		_, app.AllowedActions = resolveAccess(roles, config.Permissions)
 
 		if config.Forms.View != "" {
 			if form, ok := s.templateProvider.GetForm(config.Forms.View); ok {
@@ -348,6 +382,13 @@ func (s *service) sendToService(ctx context.Context, serviceURL string, response
 		return fmt.Errorf("service returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func resolveAccess(roles []rbac.RoleRecord, permissions []taskconfig.Permission) (bool, []string) {
+	if len(permissions) == 0 {
+		return true, []string{"VIEW", "REVIEW", "FEEDBACK"}
+	}
+	return rbac.ResolveAccess(roles, permissions)
 }
 
 func (s *service) Close() error {
