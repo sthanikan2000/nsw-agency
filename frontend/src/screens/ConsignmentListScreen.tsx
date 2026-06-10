@@ -6,6 +6,7 @@ import { MagnifyingGlassIcon, ChevronLeftIcon, ChevronRightIcon, ArchiveIcon } f
 import { type ConsignmentSummary } from '../services/types'
 import { fetchConsignments } from '../services/consignments'
 import i18n from '../i18n'
+import { useDebounce } from '../hooks/useDebounce'
 
 const PAGE_SIZE = 20
 
@@ -14,11 +15,19 @@ export function ConsignmentListScreen() {
   const navigate = useNavigate()
   const [consignments, setConsignments] = useState<ConsignmentSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const debouncedSearchTerm = useDebounce(searchTerm, 400)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // Reset page when search term changes
+  const [prevDebouncedSearchTerm, setPrevDebouncedSearchTerm] = useState(debouncedSearchTerm)
+  if (debouncedSearchTerm !== prevDebouncedSearchTerm) {
+    setPrevDebouncedSearchTerm(debouncedSearchTerm)
+    setPage(1)
+  }
 
   useEffect(() => {
     async function fetchData(isSilent = false) {
@@ -27,7 +36,7 @@ export function ConsignmentListScreen() {
         const result = await fetchConsignments({
           page,
           pageSize: PAGE_SIZE,
-          q: searchQuery,
+          q: debouncedSearchTerm,
         })
         setConsignments(result.items || [])
         setTotal(result.total || 0)
@@ -46,7 +55,7 @@ export function ConsignmentListScreen() {
     // Poll for new consignments every 15 seconds
     const interval = setInterval(() => void fetchData(true), 15000)
     return () => clearInterval(interval)
-  }, [page, searchQuery])
+  }, [page, debouncedSearchTerm])
 
   // Format date: Jan 27, 2026
   const formatDateForTable = (dateString?: string) => {
@@ -56,17 +65,6 @@ export function ConsignmentListScreen() {
       day: 'numeric',
       year: 'numeric',
     })
-  }
-
-  if (loading && page === 1) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Spinner size="3" />
-        <Text size="3" color="gray" className="ml-3">
-          {t('consignments.list.loading')}
-        </Text>
-      </div>
-    )
   }
 
   return (
@@ -90,21 +88,31 @@ export function ConsignmentListScreen() {
             <TextField.Root
               size="2"
               placeholder={t('consignments.list.searchPlaceholder')}
-              value={searchQuery}
+              value={searchTerm}
               onChange={(e) => {
-                setSearchQuery(e.target.value)
-                setPage(1)
+                setSearchTerm(e.target.value)
               }}
             >
               <TextField.Slot>
-                <MagnifyingGlassIcon height="16" width="16" />
+                {loading && searchTerm !== '' ? <Spinner size="1" /> : <MagnifyingGlassIcon height="16" width="16" />}
               </TextField.Slot>
             </TextField.Root>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          {consignments.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative min-h-[400px]">
+          {loading && (
+            <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-2">
+                <Spinner size="3" />
+                <Text size="2" color="gray">
+                  {t('consignments.list.loading')}
+                </Text>
+              </div>
+            </div>
+          )}
+
+          {consignments.length === 0 && !loading ? (
             <div className="p-12 text-center">
               <div className="bg-white w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
                 <ArchiveIcon className="w-8 h-8 text-gray-300" />
