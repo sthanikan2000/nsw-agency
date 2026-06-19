@@ -326,7 +326,13 @@ start_backend() {
     export AUTH_EXPECTED_OU="${AUTH_EXPECTED_OU:-$OU_HANDLE}"
     # Inbound clients this agency accepts: its SPA portal (user tokens) plus the
     # NSW->Agency m2m client (client_credentials) so NSW core can call /inject.
-    export AUTH_CLIENT_IDS="${AUTH_CLIENT_IDS:-$IDP_CLIENT_ID,$NSW_INBOUND_CLIENT_ID}"
+    # Append the inbound client only when set, so a config without the 7th field
+    # doesn't leave a trailing comma in AUTH_CLIENT_IDS.
+    client_ids="$IDP_CLIENT_ID"
+    if [[ -n "${NSW_INBOUND_CLIENT_ID:-}" ]]; then
+      client_ids="$client_ids,$NSW_INBOUND_CLIENT_ID"
+    fi
+    export AUTH_CLIENT_IDS="${AUTH_CLIENT_IDS:-$client_ids}"
     # The Go server does not autoload .env — source it (non-clobber) so
     # NSW_* vars (API base URL, OAuth client secret, token URL) reach
     # the process without overriding anything already set above.
