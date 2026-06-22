@@ -9,22 +9,14 @@ import {
   InfoCircledIcon,
   ChatBubbleIcon,
 } from '@radix-ui/react-icons'
-import { type AgencyApplication } from '../services/types'
+import { type AgencyApplication } from './types'
 import { JsonForms } from '@jsonforms/react'
 import { radixRenderers } from '@opennsw/jsonforms-renderers'
 import { createAjv, type JsonSchema, type UISchemaElement } from '@jsonforms/core'
-import { fetchApplicationDetail, submitReview } from '../services/applications'
-interface SchemaOption {
-  const: unknown
-  title?: string
-}
+import { fetchApplicationDetail, submitReview } from './service'
+import { type SchemaProperty } from './types'
 
-interface SchemaProperty {
-  oneOf?: SchemaOption[]
-  enum?: string[]
-}
-
-export function ConsignmentDetailScreen() {
+export function ApplicationDetailScreen() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
 
@@ -80,6 +72,7 @@ export function ConsignmentDetailScreen() {
   }
 
   useEffect(() => {
+    const controller = new AbortController()
     async function fetchData() {
       if (!taskId) {
         setError(t('errors.noTaskId'))
@@ -87,7 +80,7 @@ export function ConsignmentDetailScreen() {
         return
       }
       try {
-        const data = await fetchApplicationDetail(taskId)
+        const data = await fetchApplicationDetail(taskId, controller.signal)
         setApplication(data)
         if (data.agencyForm) {
           const schema = structuredClone(data.agencyForm.schema)
@@ -124,13 +117,15 @@ export function ConsignmentDetailScreen() {
         setAgencyFormData(data.agencyActionData || {})
         setShowErrors(false)
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
         setError(t('errors.loadFailed'))
         console.error(err)
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
     void fetchData()
+    return () => controller.abort()
   }, [taskId, t])
 
   if (loading) {

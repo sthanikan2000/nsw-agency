@@ -3,13 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Badge, Text, Spinner, IconButton, Button, Flex } from '@radix-ui/themes'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowLeftIcon, ArchiveIcon } from '@radix-ui/react-icons'
-import { type AgencyApplication } from '@/services/types'
-import { fetchApplications } from '@/services/applications'
+import { type AgencyApplication } from './types'
+import { fetchApplications } from './service'
 import i18n from '@/i18n'
 
 const PAGE_SIZE = 20
 
-export function ConsignmentTasksScreen() {
+export function ApplicationListScreen() {
   const { t } = useTranslation()
   const { consignmentId } = useParams<{ consignmentId: string }>()
   const navigate = useNavigate()
@@ -21,25 +21,24 @@ export function ConsignmentTasksScreen() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   useEffect(() => {
+    const controller = new AbortController()
     async function fetchData() {
       if (!consignmentId) return
       try {
         setLoading(true)
-        const result = await fetchApplications({
-          consignmentId,
-          page,
-          pageSize: PAGE_SIZE,
-        })
+        const result = await fetchApplications({ consignmentId, page, pageSize: PAGE_SIZE }, controller.signal)
         setApplications(result.items)
         setTotal(result.total)
       } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return
         console.error('Failed to fetch tasks:', error)
       } finally {
-        setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
 
     void fetchData()
+    return () => controller.abort()
   }, [consignmentId, page])
 
   const formatDateForTable = (dateString?: string) => {
