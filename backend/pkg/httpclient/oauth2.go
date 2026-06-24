@@ -1,7 +1,6 @@
 package httpclient
 
 import (
-	"context"
 	"net/http"
 	"sync"
 
@@ -13,10 +12,10 @@ import (
 type OAuth2Authenticator struct {
 	config *clientcredentials.Config
 
-	// tokenSource is built once and reused so the underlying ReuseTokenSource
-	// caches the access token and only re-fetches when it nears expiry.
-	once        sync.Once
-	tokenSource oauth2.TokenSource
+	// mu guards the cached access token, which is reused across requests and
+	// refreshed (via a fresh client-credentials fetch) once it nears expiry.
+	mu    sync.Mutex
+	token *oauth2.Token
 }
 
 // NewOAuth2Authenticator creates a new OAuth2Authenticator.
@@ -33,22 +32,21 @@ func NewOAuth2Authenticator(clientID, clientSecret, tokenURL string, scopes []st
 
 // Authenticate fetches a token if necessary and injects it into the request header.
 func (o *OAuth2Authenticator) Authenticate(req *http.Request) error {
-	o.once.Do(func() {
-		// Build the token source once and bind it to a long-lived context so
-		// refreshes survive the cancellation of any individual request. Carry
-		// over the *http.Client that Client.Do injects (via oauth2.HTTPClient)
-		// so token fetches use the same, possibly InsecureSkipVerify, transport.
-		ctx := context.Background()
-		if hc, ok := req.Context().Value(oauth2.HTTPClient).(*http.Client); ok {
-			ctx = context.WithValue(ctx, oauth2.HTTPClient, hc)
-		}
-		o.tokenSource = o.config.TokenSource(ctx)
-	})
+	o.mu.Lock()
+	defer o.mu.Unlock()
 
-	token, err := o.tokenSource.Token()
-	if err != nil {
-		return err
+	// Token.Valid() is nil-safe and treats a token within ~10s of expiry as
+	// invalid, so we refresh proactively. Fetch using the request's context so
+	// the token call uses the HTTP client Client.Do injects and honours the
+	// request's timeout/cancellation, rather than a long-lived background context.
+	if !o.token.Valid() {
+		token, err := o.config.TokenSource(req.Context()).Token()
+		if err != nil {
+			return err
+		}
+		o.token = token
 	}
-	token.SetAuthHeader(req)
+
+	o.token.SetAuthHeader(req)
 	return nil
 }

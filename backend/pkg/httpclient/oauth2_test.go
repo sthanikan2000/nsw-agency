@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -205,5 +206,48 @@ func TestOAuth2AuthenticatorRefreshesExpiredToken(t *testing.T) {
 
 	if got := atomic.LoadInt32(&tokenHits); got != 2 {
 		t.Errorf("expected token endpoint to be hit twice (refresh), got %d", got)
+	}
+}
+
+// TestOAuth2AuthenticatorHonoursRequestContext verifies the token fetch respects
+// the cancellation/deadline of the request's context. The client is built WITHOUT
+// a timeout, so only the request context can abort a hung token endpoint — proving
+// the fetch is not bound to a long-lived background context.
+func TestOAuth2AuthenticatorHonoursRequestContext(t *testing.T) {
+	// Token server that blocks until either its request context is cancelled or
+	// the test releases it. release is closed before tokenServer.Close() (defers
+	// run LIFO) so teardown never waits on a stuck handler.
+	release := make(chan struct{})
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer tokenServer.Close()
+	defer close(release)
+
+	auth := NewOAuth2Authenticator("id", "secret", tokenServer.URL, nil)
+	client := NewClientBuilder().
+		WithAuthenticator(auth).
+		Build()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+
+	start := time.Now()
+	_, err = client.Do(req)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from a token fetch cancelled by the request context, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("token fetch did not honour the request context; took %v", elapsed)
 	}
 }
