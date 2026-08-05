@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -144,6 +145,12 @@ func LoadConfig() (Config, error) {
 	}
 	cfg.IdleTimeout = idleTimeout
 
+	tokenParams, err := parseQueryEnv("NSW_TOKEN_PARAMS")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.NSW.TokenParams = tokenParams
+
 	tokenInsecureSkipVerify, err := parseBoolEnv("NSW_TOKEN_INSECURE_SKIP_VERIFY", false)
 	if err != nil {
 		return Config{}, err
@@ -211,6 +218,29 @@ func parseBoolEnv(key string, defaultValue bool) (bool, error) {
 	}
 
 	return value, nil
+}
+
+// parseQueryEnv reads a query-string-encoded env var into url.Values — the same encoding
+// the value ends up in on the wire, so no bespoke syntax is involved. Multiple parameters
+// are separated by "&" and a key may repeat:
+//
+//	NSW_TOKEN_PARAMS=resource=https://api.nsw-srilanka.local
+//	NSW_TOKEN_PARAMS=resource=https://api.nsw-srilanka.local&audience=nsw-api
+//
+// Percent-encode any value containing "&" or "=", and quote the whole thing when exporting
+// from a shell. Unset yields nil, which callers treat as "send nothing extra".
+func parseQueryEnv(key string) (url.Values, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil, nil
+	}
+
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid value for %s: %q: %w", key, raw, err)
+	}
+
+	return values, nil
 }
 
 func parseInt64Env(key string, defaultValue int64) (int64, error) {

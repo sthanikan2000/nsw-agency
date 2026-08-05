@@ -106,7 +106,7 @@ env:
   # --- Inbound auth: tokens this backend accepts ---
   AUTH_JWKS_URL: "https://idp.example.com/oauth2/jwks"
   AUTH_ISSUER: "https://idp.example.com"
-  AUTH_AUDIENCE: "AGENCY_API"
+  AUTH_AUDIENCE: "https://api.nsw-agency.local"
   AUTH_CLIENT_IDS: "<SPA_AGENCY_PORTAL>,<M2M_NSW_TO_AGENCY>"
   AUTH_EXPECTED_OU: "<AGENCY_OU_HANDLE>"
   AUTH_JWKS_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
@@ -122,6 +122,11 @@ env:
         key: nsw-client-secret
   NSW_TOKEN_URL: "https://idp.example.com/oauth2/token"
   NSW_SCOPES: "nsw:task:write,nsw:consignment:read,nsw:storage:read,nsw:storage:write"
+  # Extra token-request parameters, query-string encoded (sent in the request body).
+  # NSW's IdP requires an RFC 8707 `resource` indicator on any scope-bearing request; it
+  # becomes the token's `aud` and must match the NSW API's registered identifier. Omit
+  # this only for an authorization server that binds tokens by scope alone.
+  NSW_TOKEN_PARAMS: "resource=https://api.nsw-srilanka.local"
   NSW_TOKEN_INSECURE_SKIP_VERIFY: "false"   # DEV-ONLY true; keep false in prod
 
   # --- Officer portal runtime config ---
